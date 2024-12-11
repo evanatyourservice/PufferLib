@@ -58,9 +58,9 @@ def create(config, vecenv, policy, optimizer=None, wandb=None):
     if config.optimizer == 'kron':
         optimizer = ForeachPSGDKron(policy.parameters(),
             lr=config.learning_rate, weight_decay=config.weight_decay,
-            # preconditioner_update_probability=precond_update_prob_schedule(min_prob=0.05),
+            preconditioner_update_probability=precond_update_prob_schedule(min_prob=0.05),
             max_size_triangular=8192, merge_dims=True,
-            update_clipping="identity", stochastic_schedule=False)
+            update_clipping=lambda x: x, stochastic_schedule=False)
     else:
         optimizer = torch.optim.Adam(policy.parameters(),
             lr=config.learning_rate, eps=1e-5, weight_decay=config.weight_decay)
