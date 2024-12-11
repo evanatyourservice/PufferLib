@@ -14,6 +14,8 @@ from rich.console import Console
 from rich.table import Table
 
 import torch
+from heavyball import ForeachPSGDKron
+from heavyball.utils import precond_update_prob_schedule
 
 import pufferlib
 import pufferlib.utils
@@ -53,8 +55,15 @@ def create(config, vecenv, policy, optimizer=None, wandb=None):
     if config.compile:
         policy = torch.compile(policy, mode=config.compile_mode)
 
-    optimizer = torch.optim.Adam(policy.parameters(),
-        lr=config.learning_rate, eps=1e-5)
+    if config.optimizer == 'kron':
+        optimizer = ForeachPSGDKron(policy.parameters(),
+            lr=config.learning_rate, weight_decay=1e-4,
+            precond_update_prob_schedule=precond_update_prob_schedule(min_prob=0.05),
+            max_size_triangular=8192, merge_dims=True, update_clipping=lambda x: x,
+            stochastic_schedule=False)
+    else:
+        optimizer = torch.optim.Adam(policy.parameters(),
+            lr=config.learning_rate, eps=1e-5)
 
     return pufferlib.namespace(
         config=config,

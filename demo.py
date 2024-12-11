@@ -360,6 +360,8 @@ if __name__ == '__main__':
         default='puffer_squared', help='Name of specific environment to run')
     parser.add_argument('--mode', type=str, default='train',
         choices='train eval evaluate sweep sweep-carbs autotune profile'.split())
+    parser.add_argument('--optimizer', type=str, default='kron',
+        choices=['adam', 'kron'])
     parser.add_argument('--vec', '--vector', '--vectorization', type=str,
         default='native', choices=['serial', 'multiprocessing', 'ray', 'native'])
     parser.add_argument('--vec-overwork', action='store_true',
