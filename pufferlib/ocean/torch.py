@@ -18,7 +18,7 @@ class NMMO3(nn.Module):
     def __init__(self, env, hidden_size=256, output_size=256, **kwargs):
         super().__init__()
         self.hidden_size = hidden_size
-        #self.dtype = pufferlib.pytorch.nativize_dtype(env.emulated)
+        self.dtype = pufferlib.pytorch.nativize_dtype(env.emulated)
         self.num_actions = env.single_action_space.n
         self.factors = np.array([4, 4, 17, 5, 3, 5, 5, 5, 7, 4])
         self.offsets = torch.tensor([0] + list(np.cumsum(self.factors)[:-1])).cuda().view(1, -1, 1, 1)
@@ -29,24 +29,36 @@ class NMMO3(nn.Module):
 
         self.map_2d = nn.Sequential(
             pufferlib.pytorch.layer_init(nn.Conv2d(self.multihot_dim, 64, 5, stride=3)),
-            nn.ReLU(),
+            nn.LayerNorm([64, 3, 4]),
+            nn.GELU(),
             pufferlib.pytorch.layer_init(nn.Conv2d(64, 64, 3, stride=1)),
+            nn.LayerNorm([64, 1, 2]),
+            nn.GELU(),
             nn.Flatten(),
         )
 
         self.player_discrete_encoder = nn.Sequential(
             nn.Embedding(128, 32),
+            nn.LayerNorm(32),
+            nn.GELU(),
             nn.Flatten(),
         )
 
         self.proj = nn.Sequential(
             pufferlib.pytorch.layer_init(nn.Linear(1689, hidden_size)),
-            nn.ReLU(),
+            nn.LayerNorm(hidden_size),
+            nn.GELU(),
         )
 
-        self.actor = pufferlib.pytorch.layer_init(
-            nn.Linear(output_size, self.num_actions), std=0.01)
-        self.value_fn = pufferlib.pytorch.layer_init(nn.Linear(output_size, 1), std=1)
+        self.actor = nn.Sequential(
+            nn.LayerNorm(output_size),
+            pufferlib.pytorch.layer_init(nn.Linear(output_size, self.num_actions), std=0.01)
+        )
+        
+        self.value_fn = nn.Sequential(
+            nn.LayerNorm(output_size),
+            pufferlib.pytorch.layer_init(nn.Linear(output_size, 1), std=1)
+        )
 
         # Pre-allocate allows compilation
         map_buf = torch.zeros(32768, self.multihot_dim, 11, 15, dtype=torch.float32)
