@@ -131,13 +131,7 @@ class OneSidedKron(torch.optim.Optimizer):
                 adam_param_groups.append({"params": adam_params})
 
         if adam_param_groups:
-            self._adam = torch.optim.Adam(
-                adam_param_groups,
-                lr=lr * 3.0,
-                betas=(0.9, 0.99),
-                eps=1e-8,
-                fused=True
-            )
+            self._adam = torch.optim.Adam(adam_param_groups, lr=lr * 3.0, fused=True)
         else:
             self._adam = None
 
