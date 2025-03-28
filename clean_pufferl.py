@@ -21,6 +21,7 @@ import pufferlib.utils
 import pufferlib.pytorch
 
 from mup import MuAdam
+from kronos import OneSidedKron, precond_update_prob_schedule
 
 torch.set_float32_matmul_precision('high')
 
@@ -118,7 +119,7 @@ def create(config, vecenv, policy, optimizer=None, wandb=None, neptune=None):
     if config.compile:
         policy = torch.compile(policy, mode=config.compile_mode, fullgraph=config.compile_fullgraph)
 
-    assert config.optimizer in ('adam', 'muon', 'kron')
+    assert config.optimizer in ('adam', 'muon', 'kron', 'kronos')
     if config.optimizer == 'adam':
         optimizer = torch.optim.Adam(
             policy.parameters(),
@@ -138,13 +139,43 @@ def create(config, vecenv, policy, optimizer=None, wandb=None, neptune=None):
         )
     elif config.optimizer == 'kron':
         from heavyball import ForeachPSGDKron
-        import heavyball.utils
-        #heavyball.utils.compile_mode = "reduce-overhead"
         optimizer = ForeachPSGDKron(
             policy.parameters(),
             lr=config.learning_rate,
-            precond_lr=config.precond_lr,
             beta=config.adam_beta1,
+            weight_decay=config.weight_decay,
+            preconditioner_update_probability=precond_update_prob_schedule(
+                min_prob=config.precond_min_prob, flat_start=1000,
+            ),
+            max_size_triangular=16384,
+            min_ndim_triangular=2,
+            memory_save_mode=None,
+            momentum_into_precond_update=True,
+            merge_dims=True,
+            precond_lr=config.precond_lr,
+        )
+    elif config.optimizer == 'kronos':
+        kron_dtype = torch.bfloat16 if config.opt_dtype == 'bfloat16' else torch.float32
+        print("Kron hyperparameters:")
+        print(f"Learning rate: {config.learning_rate}")
+        print(f"Beta1: {config.adam_beta1}")
+        print(f"Weight decay: {config.weight_decay}")
+        print(f"Preconditioner update probability: {config.precond_min_prob}")
+        print(f"Preconditioner reset every n: {config.precond_reset_every_n}")
+        print(f"Preconditioner LR: {config.precond_lr}")
+        print(f"Dtype: {kron_dtype}")
+        
+        optimizer = OneSidedKron(
+            policy.parameters(),
+            lr=config.learning_rate,
+            b1=config.adam_beta1,
+            weight_decay=config.weight_decay,
+            preconditioner_update_probability=precond_update_prob_schedule(
+                min_prob=config.precond_min_prob, flat_start=1000,
+            ),
+            reset_precond_every_n=config.precond_reset_every_n,
+            precond_lr=config.precond_lr,
+            dtype=kron_dtype,
         )
 
     epochs = config.total_timesteps // config.batch_size
@@ -558,10 +589,15 @@ def train(data):
                     data.msg = f'Gradient variance: {grad_var.item():.3f}'
 
                 if (mb + 1) % accumulate_minibatches == 0:
-                    torch.nn.utils.clip_grad_norm_(data.policy.parameters(), config.max_grad_norm)
+                    # torch.nn.utils.clip_grad_norm_(data.policy.parameters(), config.max_grad_norm)
 
                     if data.scaler is None:
-                        data.optimizer.step()
+                        if config.optimizer == 'kronos':
+                            loss, update_energy = data.optimizer.step()
+                            data.msg += f' Update energy: {update_energy:.3f}'
+                        else:
+                            data.optimizer.step()
+
                     else:
                         data.scaler.step(data.optimizer)
                         data.scaler.update()
